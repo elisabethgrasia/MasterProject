@@ -1,0 +1,320 @@
+Baseline Function
+
+Execution below was done in python
+
+
+# Cholesky factor emphasize
+# separation between cholesky factor and cholesky solve
+Execution time diags eye: 1.242882251739502
+Execution time cholesky factor: 34.80449986457825
+Execution time cholesky solve: 35.18137741088867
+Execution time cholesky factor: 66.97244596481323
+Execution time cholesky solve: 67.33435845375061
+Execution time cholesky factor: 100.09690737724304
+Execution time cholesky solve: 100.474773645401
+Execution time cholesky factor: 138.30274534225464
+Execution time cholesky solve: 138.71676588058472
+Execution time cholesky factor: 175.38498878479004
+Execution time cholesky solve: 175.7229926586151
+Execution time cholesky factor: 211.07332849502563
+Execution time cholesky solve: 211.45630478858948
+Execution time cholesky factor: 245.97830080986023
+Execution time cholesky solve: 246.37929821014404
+Execution time cholesky factor: 284.0664002895355
+Execution time cholesky solve: 284.46940183639526
+Execution time cholesky factor: 329.9204339981079
+Execution time cholesky solve: 330.3824007511139
+Execution time cholesky factor: 368.2755823135376
+Execution time cholesky solve: 368.7385804653168
+
+# ------------------- 1st Trial of Improvement -------------------------------
+rather than scipy which using sparse matrix, I tried to convert it into numpy
+thus, the code is converted into this.
+
+def baseCorrAls(y, l, p):
+    start_time = time.time()
+    m = len(y)
+    D = np.transpose(np.diff(eye(m).toarray(), 2))
+    w = np.ones(m)
+    for i in range(10):
+	W = np.diag(w)   #### changed here
+      DTD = D.T @ D
+	C = np.linalg.cholesky(W + l * DTD)   ### changed here
+      z = spsolve(C, spsolve(C.T, w * y))	  ### changed here
+	w = p * (y.ravel() > z) + (1 - p) * (y.ravel() < z)
+    return z
+
+
+1st for loop : Execution time cholesky factor: 99.01987028121948
+2nd for loop :
+	raise LinAlgError("Matrix is not positive definite")
+
+	LinAlgError: Matrix is not positive definite
+
+# --------------------- 2nd Trial of Improvement -------------------------------
+In this calculation, we need double sparse matrix to compute into cholesky because it will make the computation
+more effective. Using numpy.diag will create an array of 14893 x 14893 which is quite big and takes longer time to compute.
+
+def baseCorrAls(y, l, p):
+    start_time = time.time()
+    m = len(y)
+    D = np.transpose(np.diff(eye(m).toarray(), 2))
+    w = np.ones(m)
+    for i in range(10):
+	W = diags(w, 0, shape=(m, m))
+      DTD = D.T @ D
+      C = cholesky(W + l * DTD)
+      z = lstsq(C, lstsq(C.T, (np.matmul(w, y))))
+      end_time1 = time.time()
+      execution_time = end_time1 - start_time
+      print("Execution time cholesky factor:", execution_time)
+        
+      w = p * (y.ravel() > z) + (1 - p) * (y.ravel() < z)
+    return z
+
+this code works to long in lstsq part (>10mnts in one loop).
+
+# ------------------------- 3rd Trial Improvement --------------------------------
+The main reason of the time difference between matlab and python is because of sparse matrix. Sparse matrix is able to use less
+memory compared to dense matrix, thus the calculation in matlab is so fast. In python, there is no similar equation (cholesky and lstsq)
+which is compatible for sparse matrix straight away. 
+
+def baseCorrAls(y, l, p):
+    	m = len(y)
+    	D = (np.diff(eye(m).toarray(), 2)).T
+    	# creating sparse matrix
+    	D = sp.csr_matrix(D,  dtype=np.float32)
+	w = np.ones(m)
+    	for i in range(10):
+      	W = diags(w, 0, shape=(m, m))
+      	DTD = D.T @ D
+       	C, lower = cho_factor(W + l * DTD.toarray())
+        	C = sp.csr_matrix(C,  dtype=np.float32)		    	# creating sparse matrix here as well
+        	wy = w * y.ravel()
+        	z = cho_solve((C.toarray(), lower), wy)
+	return z
+
+resulting in a bit faster (10 sec faster for each loop).
+
+Execution time diags eye: 5.735029220581055
+Execution time cholesky in loop 0: 19.854970693588257
+Execution time cholesky in loop 1: 20.150999069213867
+Execution time cholesky in loop 2: 20.405999898910522
+Execution time cholesky in loop 3: 24.617814540863037
+Execution time cholesky in loop 4: 21.300312280654907
+Execution time cholesky in loop 5: 23.686979293823242
+Execution time cholesky in loop 6: 25.457580089569092
+Execution time cholesky in loop 7: 25.411539793014526
+Execution time cholesky in loop 8: 24.55688738822937
+Execution time cholesky in loop 9: 22.486998081207275
+Execution time whole function: 233.67111372947693
+
+# ------------------------- 4th Trial Improvement --------------------------------
+Almost similar to 3rd trial, but only D matrix which is converted into sparse matrix.
+
+def baseCorrAls(y, l, p):
+    	m = len(y)
+    	D = (np.diff(eye(m).toarray(), 2)).T
+    	# creating sparse matrix
+    	D = sp.csr_matrix(D,  dtype=np.float32)
+	w = np.ones(m)
+    	for i in range(10):
+      	W = diags(w, 0, shape=(m, m))
+      	DTD = D.T @ D
+       	C, lower = cho_factor(W + l * DTD.toarray())
+        	wy = w * y.ravel()
+        	z = cho_solve((C, lower), wy)
+	return z
+
+it improves! the execution time is almost half of the original time.
+
+Execution time diags eye: 8.561883926391602
+Execution time cholesky in loop 0: 13.994029998779297
+Execution time cholesky in loop 1: 16.307000398635864
+Execution time cholesky in loop 2: 14.209715366363525
+Execution time cholesky in loop 3: 14.42800259590149
+Execution time cholesky in loop 4: 15.19183087348938
+Execution time cholesky in loop 5: 12.149766445159912
+Execution time cholesky in loop 6: 10.847005367279053
+Execution time cholesky in loop 7: 13.381999492645264
+Execution time cholesky in loop 8: 13.326000690460205
+Execution time cholesky in loop 9: 12.736006736755371
+Execution time whole function: 145.14322972297668
+
+---------------------------------------------------------------------------------------------------------------------------------
+In Python, it takes 8-10 seconds already to convert the matrix into sparse matrix while in Matlab sparse matrix is its original type.
+Meanwhile, sparse matrix in Python gives improvement compared to numpy type.
+
+Matlab calculating result
+Now doing peak detection for M/Z = 35
+Execution time for baseline function = 1.458328e-01 seconds 
+
+Now doing peak detection for M/Z = 36
+Execution time for baseline function = 1.865472e-01 seconds 
+
+Now doing peak detection for M/Z = 37
+Execution time for baseline function = 1.127106e-01 seconds 
+
+Now doing peak detection for M/Z = 39
+Execution time for baseline function = 4.825800e-02 seconds 
+
+Now doing peak detection for M/Z = 40
+Execution time for baseline function = 3.857170e-02 seconds 
+
+Now doing peak detection for M/Z = 41
+Execution time for baseline function = 4.304750e-02 seconds 
+
+Now doing peak detection for M/Z = 42
+Execution time for baseline function = 4.511370e-02 seconds 
+
+Now doing peak detection for M/Z = 43
+Execution time for baseline function = 4.266340e-02 seconds 
+
+Now doing peak detection for M/Z = 44
+Execution time for baseline function = 4.405640e-02 seconds 
+
+Now doing peak detection for M/Z = 45
+Execution time for baseline function = 4.405540e-02 seconds 
+
+
+
+Python result
+
+Execution time baseline function for M/Z 35: 134.70033311843872
+Execution time baseline function for M/Z 36: 128.0429801940918
+Execution time baseline function for M/Z 37: 135.5532422065735
+Execution time baseline function for M/Z 38: 126.96610164642334
+Execution time baseline function for M/Z 39: 132.93432021141052
+Execution time baseline function for M/Z 40: 128.1467263698578
+Execution time baseline function for M/Z 41: 131.85114908218384
+Execution time baseline function for M/Z 42: 132.81031489372253
+Execution time baseline function for M/Z 43: 131.15529251098633
+Execution time baseline function for M/Z 44: 131.78074431419373
+Execution time baseline function for M/Z 45: 128.5016210079193
+Execution time baseline function for M/Z 46: 137.3537244796753
+Execution time baseline function for M/Z 47: 130.25088572502136
+Execution time baseline function for M/Z 48: 131.95354056358337
+Execution time baseline function for M/Z 49: 130.98118090629578
+Execution time baseline function for M/Z 50: 136.70862579345703
+Execution time baseline function for M/Z 51: 134.16935348510742
+Execution time baseline function for M/Z 52: 129.5173122882843
+Execution time baseline function for M/Z 53: 132.3835678100586
+Execution time baseline function for M/Z 54: 132.05955171585083
+Execution time baseline function for M/Z 55: 141.16285824775696
+Execution time baseline function for M/Z 56: 136.91082978248596
+Execution time baseline function for M/Z 57: 140.49322962760925
+Execution time baseline function for M/Z 58: 146.65334606170654
+Execution time baseline function for M/Z 59: 144.8650186061859
+Execution time baseline function for M/Z 60: 136.68308973312378
+Execution time baseline function for M/Z 61: 135.8940680027008
+Execution time baseline function for M/Z 62: 133.82169890403748
+Execution time baseline function for M/Z 63: 136.68555855751038
+Execution time baseline function for M/Z 64: 136.93460083007812
+Execution time baseline function for M/Z 65: 133.17025876045227
+Execution time baseline function for M/Z 66: 132.80631613731384
+Execution time baseline function for M/Z 67: 136.01287722587585
+Execution time baseline function for M/Z 68: 141.3553590774536
+Execution time baseline function for M/Z 69: 134.70455408096313
+Execution time baseline function for M/Z 70: 135.25281953811646
+Execution time baseline function for M/Z 71: 133.1101987361908
+Execution time baseline function for M/Z 72: 137.35800457000732
+Execution time baseline function for M/Z 73: 139.6741816997528
+Execution time baseline function for M/Z 74: 138.47745895385742
+Execution time baseline function for M/Z 75: 132.77486872673035
+Execution time baseline function for M/Z 76: 136.6124131679535
+Execution time baseline function for M/Z 77: 146.50734972953796
+Execution time baseline function for M/Z 78: 134.98000049591064
+Execution time baseline function for M/Z 79: 122.96299862861633
+Execution time baseline function for M/Z 80: 94.2385196685791
+Execution time baseline function for M/Z 81: 5293.272635936737
+Execution time baseline function for M/Z 82: 102.21451115608215
+Execution time baseline function for M/Z 83: 94.33718228340149
+Execution time baseline function for M/Z 84: 97.54673862457275
+Execution time baseline function for M/Z 85: 99.31514501571655
+Execution time baseline function for M/Z 86: 95.71955919265747
+Execution time baseline function for M/Z 87: 101.31449604034424
+Execution time baseline function for M/Z 88: 96.2621579170227
+Execution time baseline function for M/Z 89: 96.43069553375244
+Execution time baseline function for M/Z 90: 98.66435146331787
+Execution time baseline function for M/Z 91: 97.70268893241882
+Execution time baseline function for M/Z 92: 97.7905216217041
+Execution time baseline function for M/Z 93: 98.9263129234314
+Execution time baseline function for M/Z 94: 98.6924216747284
+Execution time baseline function for M/Z 95: 95.68147587776184
+Execution time baseline function for M/Z 96: 100.89084482192993
+Execution time baseline function for M/Z 97: 96.13064527511597
+Execution time baseline function for M/Z 98: 96.65770268440247
+Execution time baseline function for M/Z 99: 96.30287075042725
+Execution time baseline function for M/Z 100: 100.11097598075867
+Execution time baseline function for M/Z 101: 97.94711470603943
+Execution time baseline function for M/Z 102: 99.94662880897522
+Execution time baseline function for M/Z 103: 103.50679087638855
+Execution time baseline function for M/Z 104: 103.46087145805359
+Execution time baseline function for M/Z 105: 103.88086748123169
+Execution time baseline function for M/Z 106: 106.36271238327026
+Execution time baseline function for M/Z 107: 106.22326445579529
+Execution time baseline function for M/Z 108: 101.33504962921143
+Execution time baseline function for M/Z 109: 99.01460719108582
+Execution time baseline function for M/Z 110: 97.97879219055176
+Execution time baseline function for M/Z 111: 98.87869215011597
+Execution time baseline function for M/Z 112: 98.45023131370544
+Execution time baseline function for M/Z 113: 97.73136949539185
+Execution time baseline function for M/Z 114: 99.69829416275024
+Execution time baseline function for M/Z 115: 97.15235900878906
+Execution time baseline function for M/Z 116: 97.91684484481812
+Execution time baseline function for M/Z 117: 88.47041916847229
+Execution time baseline function for M/Z 118: 83.21218752861023
+Execution time baseline function for M/Z 119: 84.50730109214783
+Execution time baseline function for M/Z 120: 81.98700404167175
+Execution time baseline function for M/Z 121: 83.7467257976532
+Execution time baseline function for M/Z 122: 81.60691738128662
+Execution time baseline function for M/Z 123: 82.43840861320496
+Execution time baseline function for M/Z 124: 81.12503147125244
+Execution time baseline function for M/Z 125: 81.52058911323547
+Execution time baseline function for M/Z 126: 81.21405839920044
+Execution time baseline function for M/Z 127: 81.29598069190979
+Execution time baseline function for M/Z 128: 82.89211964607239
+Execution time baseline function for M/Z 129: 82.33031463623047
+Execution time baseline function for M/Z 130: 80.94980955123901
+Execution time baseline function for M/Z 131: 84.81388211250305
+Execution time baseline function for M/Z 132: 82.50630640983582
+Execution time baseline function for M/Z 133: 81.96871519088745
+Execution time baseline function for M/Z 134: 81.19621682167053
+Execution time baseline function for M/Z 135: 81.64146137237549
+Execution time baseline function for M/Z 136: 83.61486458778381
+Execution time baseline function for M/Z 137: 80.17660760879517
+Execution time baseline function for M/Z 138: 80.02586507797241
+Execution time baseline function for M/Z 139: 81.39507627487183
+Execution time baseline function for M/Z 140: 87.10586881637573
+
+
+
+# ------------------------- 5th Trial Improvement --------------------------------
+Rather than cholesky decomposition, using almost similar matrix decomposition called LU decomposition, it works much faster.
+Both of cholesky and LU decomposition decompose the matrix into upper triangular matrix and lower triangular matrix,
+but the cholesky will use either lower part only or upper part only. As mentioned before, matlab function will work
+by using sparse matrix (which makes the process runs so fast and using less computer memory). The same trick is used in Python,
+because there is no cholesky decomposition for calculating the sparse matrix, I use the LU decomposition instead. 
+The resulting baseline is the same, however, executing time is competitive to matlab. There is no choice to use numpy in D variable,
+it is because we need the diff function.
+
+def baseCorrAls(y, l, p):
+    	m = len(y)
+    	D = (np.diff(eye(m).toarray(), 2)).T
+    	# creating sparse matrix
+    	D = sp.csc_matrix(D,  dtype=np.float32)
+	w = np.ones(m)
+    	for i in range(10):
+      	W = diags(w, 0, shape=(m, m))
+      	DTD = D.T @ D
+       	C = splu(W + l * DTD)
+        	wy = w * y.ravel()
+        	z = C.solve(wy)
+		w = p * (y.ravel() > z) + (1 - p) * (y.ravel() < z)
+	return z
+
+it improves! the execution time is competitive to the original time.
+
+
+
+

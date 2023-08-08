@@ -1,0 +1,15 @@
+week 5 questions
+3.04.2023
+
+
+
+1. Normalise Data
+2. Figure 4 Plotting:
+	- plt.title 
+	- changing m/z plot by click any keys --> is there any for loop? from where?
+3. Figure 5 Plotting does not work in matlab
+4. GCPeakDetection code:
+	- how to import gcData into this function?
+	- what is nargin?
+	- where to get splitSignalSize?
+

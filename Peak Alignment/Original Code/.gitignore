@@ -1,0 +1,7 @@
+SavedModels/
+data/
+results/
+.vscode/
+__pycache__/
+temp/
+other/
